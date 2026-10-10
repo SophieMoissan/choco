@@ -15,34 +15,14 @@ namespace chocolatey.infrastructure.app.services
 {
     internal class NugetListService : IListSourceRunner
     {
-        private readonly IFileSystem _fileSystem;
-        private readonly ILogger _nugetLogger;
-        private readonly IChocolateyPackageInformationService _packageInfoService;
-        private readonly IFilesService _filesService;
-        private readonly IRuleService _ruleService;
-        //private readonly PackageDownloader _packageDownloader;
-        private readonly Lazy<IDateTime> _datetime = new Lazy<IDateTime>(() => new DateTime());
+        private readonly NugetServiceCommon _common;
 
-        private IDateTime DateTime
+        public NugetListService(NugetServiceCommon common)
         {
-            get { return _datetime.Value; }
+            _common = common;
         }
 
-        public NugetListService(
-            IFileSystem fileSystem,
-            ILogger nugetLogger,
-            IChocolateyPackageInformationService packageInfoService,
-            IFilesService filesService,
-            IRuleService ruleService)
-        {
-            _fileSystem = fileSystem;
-            _nugetLogger = nugetLogger;
-            _packageInfoService = packageInfoService;
-            _filesService = filesService;
-            _ruleService = ruleService;
-        }
-
-        public string SourceType { get => SourceTypes.Normal; }
+        public string SourceType { get => _common.SourceType; }
 
         public virtual void ListDryRun(ChocolateyConfiguration config)
         {
