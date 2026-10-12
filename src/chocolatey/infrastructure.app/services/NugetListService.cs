@@ -43,53 +43,37 @@ namespace chocolatey.infrastructure.app.services
         private IEnumerable<PackageResult> RunList(ChocolateyConfiguration config, bool isDry)
         {
             uint count = 0;
+            bool shouldOutputHeader;   
             var decryptionFailures = new List<ChocolateyPackageInformation>();
 
-            bool isConfigChanged = false;
-            if(!TryPrepareConfig(config, ref isConfigChanged))
+            if (!TryPrepareConfig(config, out bool isConfigChanged))
             {
                 yield break;
             }
             try // yield, finally: RestoreConfig
-            {            
+            {         
                 if (config.RegularOutput)
                 {
                     ShowPreamble(config);
+                    shouldOutputHeader = false;
                 }
-
-                // Don't print yet: wait till we know we're going to show at least one package.
-                // Set to false once header is printed.
-                bool shouldPrintHeader = (!config.QuietOutput && !config.RegularOutput && config.IncludeHeaders);
-                if (isDry)
+                else
                 {
-                    this.Log().Info (
-                        "Dry run: {0} would have searched for '{1}' against the following source(s) :\"{2}\""
-                        .FormatWith (ApplicationParameters.Name, config.Input, config.Sources)
-                    );
+                    // Note: we don't print a header here, because we only want to do that if there is a package.
+                    // Set to false once header is printed.
+                    shouldOutputHeader = !config.QuietOutput && config.IncludeHeaders;
                 }
-                else 
+            
+                foreach (var pkg in GetPackages(config, isDry))
                 {
-                    foreach (var pkg in NugetList.GetPackages(config, _common.NugetLogger, _common.FileSystem))
+                    var ListingData = GatherListingData(config, decryptionFailures, pkg);
+                    if (shouldOutputHeader)
                     {
-                        ChocolateyPackageMetadata packageLocalMetadata;
-                        var listingData = new PackageListingExtraData();
-                                
-                        if (pkg.PackagePath != null && !string.IsNullOrWhiteSpace(pkg.PackagePath))
-                        {
-                            packageLocalMetadata = new ChocolateyPackageMetadata(pkg.PackagePath, _common.FileSystem);
-                            if (config.ListCommand.LocalOnly)
-                            {
-                                listingData.GatherLocalOnlyData(_common, config, pkg, packageLocalMetadata, decryptionFailures);
-                            }
-                        }
-                        else
-                        {
-                            packageLocalMetadata = null;
-                        }
-                        // TODO: show header
-                        // TODO: show package
-                        // TODO: yield return
+                        OutputHeader(config);
+                        shouldOutputHeader = false;
                     }
+                    // TODO: show package
+                    // TODO: yield return
                 }
                 // TODO: Postamble 
             }
@@ -101,10 +85,59 @@ namespace chocolatey.infrastructure.app.services
             // TODO: show decryption failure warnings
         }
 
-        
 
-        private bool TryPrepareConfig(ChocolateyConfiguration config, ref bool isConfigChanged)
+
+        private static void OutputHeader(ChocolateyConfiguration config)
         {
+            if (config.ListCommand.IdOnly)
+            {
+                OutputHelpers.LimitedOutput("Id");
+            }
+            else
+            {
+                OutputHelpers.LimitedOutput("Id", "Version");
+            }
+        }
+
+        private PackageListingData GatherListingData(
+            ChocolateyConfiguration config, 
+            List<ChocolateyPackageInformation> decryptionFailures, 
+            IPackageSearchMetadata pkg
+        )
+        {
+            var listingData = new PackageListingData();
+
+            if (pkg.PackagePath != null && !string.IsNullOrWhiteSpace(pkg.PackagePath))
+            {
+                listingData.PackageLocalMetadata = new ChocolateyPackageMetadata(pkg.PackagePath, _common.FileSystem);
+                if (config.ListCommand.LocalOnly)
+                {
+                    listingData.GatherLocalOnlyData(_common, config, pkg, decryptionFailures);
+                }
+            }
+            return listingData;
+        }
+
+        private IEnumerable<IPackageSearchMetadata> GetPackages(ChocolateyConfiguration config, bool isDry)
+        {
+            if (isDry)
+            {
+                this.Log().Info (
+                    "Dry run: {0} would have searched for '{1}' against the following source(s) :\"{2}\""
+                    .FormatWith (ApplicationParameters.Name, config.Input, config.Sources)
+                );
+                return Enumerable.Empty<IPackageSearchMetadata>();
+            }
+            else
+            {
+                return NugetList.GetPackages(config, _common.NugetLogger, _common.FileSystem);
+            }
+        }
+
+
+        private bool TryPrepareConfig(ChocolateyConfiguration config, out bool isConfigChanged)
+        {
+            isConfigChanged = false;
             if (config.ListCommand.LocalOnly)
             {
                 if (!_common.FileSystem.DirectoryExists(ApplicationParameters.PackagesLocation))
@@ -153,8 +186,14 @@ that uses these options.");
             this.Log().Debug(ChocolateyLoggers.Verbose, () => "--- Start of List ---");
         }
 
-        private class PackageListingExtraData
+        private PackageListingData GatherListingData()
         {
+            throw new NotImplementedException();
+        }
+
+        private class PackageListingData
+        {
+            public ChocolateyPackageMetadata PackageLocalMetadata { get; set; } = null;
             public bool ShouldSkip { get; private set; } = false;
             public string PackageInstallLocation { get; private set; } = null;
             public string Deploymentlocation { get; private set; } = null;
@@ -165,14 +204,13 @@ that uses these options.");
                 NugetServiceCommon common,
                 ChocolateyConfiguration config,
                 IPackageSearchMetadata package,
-                ChocolateyPackageMetadata packageLocalMetadata,
                 List<ChocolateyPackageInformation> decryptionFailures
             )
             {
                 // We need to grab some more information about the package, so that we can
                 // determine if it is pinned or not, as well as to grab information about
                 // arguments, etc.
-                var packageInfo = common.PackageInfoService.Get(packageLocalMetadata);
+                var packageInfo = common.PackageInfoService.Get(PackageLocalMetadata);
                 PackageInstallLocation = common.FileSystem.GetDirectoryName(package.PackagePath);
                 ShouldSkip = config.ListCommand.IgnorePinned && packageInfo.IsPinned;
                 if (ShouldSkip)
@@ -185,7 +223,7 @@ that uses these options.");
 
                 if (config.ListCommand.IncludeVersionOverrides && packageInfo.VersionOverride != null)
                 {
-                    packageLocalMetadata.OverrideOriginalVersion(packageInfo.VersionOverride);
+                    PackageLocalMetadata.OverrideOriginalVersion(packageInfo.VersionOverride);
                 }
 
                 if (ShouldDecryptArguments(config,packageInfo))
