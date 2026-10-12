@@ -48,12 +48,7 @@ namespace chocolatey.infrastructure.app.services
         {
             uint count = 0;
             bool isConfigChanged = false;
-            try 
-            {
-                // Throws, catch that! See (#508)
-                PrepareConfig(config, ref isConfigChanged, isDry);
-            }
-            catch (FileNotFoundException)
+            if(!TryPrepareConfig(config, ref isConfigChanged))
             {
                 // TODO: do we want to print why no packages are listed?
                 yield break;
@@ -67,22 +62,19 @@ namespace chocolatey.infrastructure.app.services
             }
             finally
             {
-                RestoreConfig(config, isConfigChanged, isDry);
+                RestoreConfig(config, isConfigChanged);
             }
             
         }
 
 
-        private void PrepareConfig(ChocolateyConfiguration config, ref bool isConfigChanged, bool isDry)
+        private bool TryPrepareConfig(ChocolateyConfiguration config, ref bool isConfigChanged)
         {
             if (config.ListCommand.LocalOnly)
             {
                 if (!_common.FileSystem.DirectoryExists(ApplicationParameters.PackagesLocation))
                 {
-                    throw new FileNotFoundException(
-                        "Local packages directory does not exist.", 
-                        ApplicationParameters.PackagesLocation
-                    );
+                    return false;
                 }
 
                 config.CreateBackup();
@@ -92,14 +84,15 @@ namespace chocolatey.infrastructure.app.services
                 config.Prerelease = true;
                 config.ListCommand.IncludeVersionOverrides = true;
             }
+            return true;
         }
 
-        private void RestoreConfig(ChocolateyConfiguration config, bool isConfigChanged, bool isDry)
+        private void RestoreConfig(ChocolateyConfiguration config, bool isConfigChanged)
         {
+            // config was only backed up if changed
             if(isConfigChanged)
             {
-                // config was only backed up if changed
-                config.RevertChanges();
+                config.RevertChanges(true);
             }
         }
 
